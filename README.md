@@ -57,16 +57,6 @@ npm run build
 
 This project is configured for Vercel + Vite.
 
-### Do changes update production automatically?
-
-- `Yes`, if your Vercel project is connected to this GitHub repo and you push to the configured production branch (usually `main`).
-- `No`, for local-only edits that are not pushed to GitHub.
-
-Typical flow:
-1. Commit local changes
-2. Push to GitHub (`main`)
-3. Vercel auto-builds and deploys
-4. New version appears on your live URL
 
 ## Scripts
 
