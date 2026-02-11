@@ -1,6 +1,15 @@
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { addTodo, createTodo, deleteTodo, toggleTodo } from "./lib/todos";
-import { loadTodoState, saveTodoState } from "./lib/storage";
+import {
+  clearCurrentUsername,
+  getEmptyTodoState,
+  getTodoStorageKeyForUser,
+  loadCurrentUsername,
+  loadTodoState,
+  sanitizeUsername,
+  saveCurrentUsername,
+  saveTodoState,
+} from "./lib/storage";
 import type { ActivityEntry, ActivityType, CompletedLogEntry, Todo, TodoAppState } from "./types/todo";
 
 type MenuKey = "board" | "completed" | "insights" | "activity";
@@ -100,7 +109,12 @@ function TrashIcon({ className }: { className?: string }) {
 }
 
 export default function App() {
-  const [state, setState] = useState<TodoAppState>(() => loadTodoState());
+  const [activeUser, setActiveUser] = useState<string | null>(() => loadCurrentUsername());
+  const [usernameInput, setUsernameInput] = useState("");
+  const [state, setState] = useState<TodoAppState>(() => {
+    const storedUser = loadCurrentUsername();
+    return storedUser ? loadTodoState(getTodoStorageKeyForUser(storedUser)) : getEmptyTodoState();
+  });
   const [inputValue, setInputValue] = useState("");
   const [activeMenu, setActiveMenu] = useState<MenuKey>("board");
   const [bursts, setBursts] = useState<FireworkBurst[]>([]);
@@ -108,13 +122,39 @@ export default function App() {
   const [showTrashCan, setShowTrashCan] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const usernameInputRef = useRef<HTMLInputElement>(null);
   const listItemRefs = useRef<Record<string, HTMLLIElement | null>>({});
   const timeoutIds = useRef<number[]>([]);
   const animationSequence = useRef(0);
 
+  const storageKey = activeUser ? getTodoStorageKeyForUser(activeUser) : null;
+
   useEffect(() => {
-    saveTodoState(state);
-  }, [state]);
+    if (!storageKey) {
+      return;
+    }
+
+    saveTodoState(state, storageKey);
+  }, [state, storageKey]);
+
+  useEffect(() => {
+    if (!activeUser) {
+      setState(getEmptyTodoState());
+      setActiveMenu("board");
+      setInputValue("");
+      return;
+    }
+
+    setState(loadTodoState(getTodoStorageKeyForUser(activeUser)));
+    setActiveMenu("board");
+    setInputValue("");
+  }, [activeUser]);
+
+  useEffect(() => {
+    if (!activeUser) {
+      usernameInputRef.current?.focus();
+    }
+  }, [activeUser]);
 
   useEffect(() => {
     return () => {
@@ -146,6 +186,26 @@ export default function App() {
   function scheduleTimeout(callback: () => void, ms: number): void {
     const timeoutId = window.setTimeout(callback, ms);
     timeoutIds.current.push(timeoutId);
+  }
+
+  function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const nextUser = sanitizeUsername(usernameInput);
+    if (!nextUser) {
+      return;
+    }
+
+    saveCurrentUsername(nextUser);
+    setState(loadTodoState(getTodoStorageKeyForUser(nextUser)));
+    setActiveUser(nextUser);
+    setUsernameInput("");
+  }
+
+  function handleSwitchUser() {
+    clearCurrentUsername();
+    setActiveUser(null);
+    setUsernameInput("");
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -283,13 +343,61 @@ export default function App() {
     }, 1100);
   }
 
+  if (!activeUser) {
+    return (
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top,#dbeafe,#bfdbfe_42%,#e0f2fe_100%)] px-4 py-12 text-slate-900">
+        <section className="mx-auto w-full max-w-md rounded-3xl border border-blue-100/90 bg-white/90 p-6 shadow-[0_24px_64px_-28px_rgba(30,64,175,0.55)] backdrop-blur">
+          <header className="mb-6 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">Welcome</p>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Choose a Username</h1>
+            <p className="text-sm text-slate-500">No password required. Each username gets separate task data in this browser.</p>
+          </header>
+
+          <form onSubmit={handleLogin} aria-label="Login with username" className="space-y-3">
+            <label htmlFor="username" className="text-sm font-medium text-slate-700">
+              Username
+            </label>
+            <input
+              id="username"
+              ref={usernameInputRef}
+              type="text"
+              value={usernameInput}
+              onChange={(event) => setUsernameInput(event.target.value)}
+              placeholder="e.g. juan"
+              className="h-12 w-full rounded-xl border border-blue-100 bg-white px-4 text-base outline-none ring-blue-400 transition focus:ring-2"
+            />
+            <button
+              type="submit"
+              className="h-12 w-full rounded-xl bg-blue-600 px-5 font-semibold text-white transition hover:bg-blue-700"
+            >
+              Enter Workspace
+            </button>
+          </form>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#dbeafe,#bfdbfe_42%,#e0f2fe_100%)] px-4 py-12 text-slate-900">
       <section className="mx-auto w-full max-w-3xl rounded-3xl border border-blue-100/90 bg-white/90 p-6 shadow-[0_24px_64px_-28px_rgba(30,64,175,0.55)] backdrop-blur">
-        <header className="mb-5 space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">Task board</p>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">To-Do Focus Flow</h1>
-          <p className="text-sm text-slate-500">Modern workflow with animation, history, and productivity insights.</p>
+        <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">Task board</p>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">To-Do Focus Flow</h1>
+            <p className="text-sm text-slate-500">Modern workflow with animation, history, and productivity insights.</p>
+          </div>
+          <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2 text-right">
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">User</p>
+            <p className="text-sm font-semibold text-slate-800">{activeUser}</p>
+            <button
+              type="button"
+              onClick={handleSwitchUser}
+              className="mt-1 text-xs font-semibold text-blue-700 underline decoration-blue-300 underline-offset-2"
+            >
+              Switch user
+            </button>
+          </div>
         </header>
 
         <nav aria-label="Task menu" className="mb-6 flex flex-wrap gap-2">

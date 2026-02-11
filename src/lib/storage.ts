@@ -9,11 +9,7 @@ type TodoStoragePayloadV2 = {
   activity: ActivityEntry[];
 };
 
-type LegacyPayloadV1 = {
-  version: 1;
-  todos: unknown;
-  sequence: unknown;
-};
+const CURRENT_USER_STORAGE_KEY = "todoapp:user:v1";
 
 const DEFAULT_STATE: TodoAppState = {
   todos: [],
@@ -21,6 +17,19 @@ const DEFAULT_STATE: TodoAppState = {
   completedLog: [],
   activity: [],
 };
+
+function createDefaultState(): TodoAppState {
+  return {
+    todos: [],
+    sequence: 0,
+    completedLog: [],
+    activity: [],
+  };
+}
+
+function normalizeUsernameForKey(username: string): string {
+  return username.trim().toLowerCase();
+}
 
 function coerceCompletedLog(raw: unknown): CompletedLogEntry[] {
   if (!Array.isArray(raw)) {
@@ -94,53 +103,105 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export function loadTodoState(): TodoAppState {
-  if (typeof window === "undefined") {
-    return DEFAULT_STATE;
-  }
+function coerceSequence(raw: unknown): number {
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
+}
 
-  const raw = window.localStorage.getItem(TODO_STORAGE_KEY);
+function parseState(raw: string | null): TodoAppState | null {
   if (!raw) {
-    return DEFAULT_STATE;
+    return null;
   }
 
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!isRecord(parsed) || typeof parsed.version !== "number") {
-      return DEFAULT_STATE;
+      return null;
     }
 
-    if (parsed.version === 1) {
+    if (parsed.version === 1 || parsed.version === 2) {
       return {
         todos: coerceTodos(parsed.todos),
-        sequence:
-          typeof parsed.sequence === "number" && Number.isFinite(parsed.sequence)
-            ? parsed.sequence
-            : 0,
-        completedLog: [],
-        activity: [],
+        sequence: coerceSequence(parsed.sequence),
+        completedLog: parsed.version === 2 ? coerceCompletedLog(parsed.completedLog) : [],
+        activity: parsed.version === 2 ? coerceActivity(parsed.activity) : [],
       };
     }
 
-    if (parsed.version === 2) {
-      return {
-        todos: coerceTodos(parsed.todos),
-        sequence:
-          typeof parsed.sequence === "number" && Number.isFinite(parsed.sequence)
-            ? parsed.sequence
-            : 0,
-        completedLog: coerceCompletedLog(parsed.completedLog),
-        activity: coerceActivity(parsed.activity),
-      };
-    }
-
-    return DEFAULT_STATE;
+    return null;
   } catch {
-    return DEFAULT_STATE;
+    return null;
   }
 }
 
-export function saveTodoState(state: TodoAppState): void {
+export function getTodoStorageKeyForUser(username: string): string {
+  const normalized = normalizeUsernameForKey(username);
+  return normalized ? `${TODO_STORAGE_KEY}:${normalized}` : TODO_STORAGE_KEY;
+}
+
+export function sanitizeUsername(username: string): string {
+  return username.trim();
+}
+
+export function loadCurrentUsername(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw = window.localStorage.getItem(CURRENT_USER_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  const username = sanitizeUsername(raw);
+  return username.length > 0 ? username : null;
+}
+
+export function saveCurrentUsername(username: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const sanitized = sanitizeUsername(username);
+  if (!sanitized) {
+    return;
+  }
+
+  window.localStorage.setItem(CURRENT_USER_STORAGE_KEY, sanitized);
+}
+
+export function clearCurrentUsername(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+}
+
+export function getEmptyTodoState(): TodoAppState {
+  return createDefaultState();
+}
+
+export function loadTodoState(storageKey = TODO_STORAGE_KEY): TodoAppState {
+  if (typeof window === "undefined") {
+    return DEFAULT_STATE;
+  }
+
+  const direct = parseState(window.localStorage.getItem(storageKey));
+  if (direct) {
+    return direct;
+  }
+
+  if (storageKey !== TODO_STORAGE_KEY) {
+    const legacy = parseState(window.localStorage.getItem(TODO_STORAGE_KEY));
+    if (legacy) {
+      return legacy;
+    }
+  }
+
+  return DEFAULT_STATE;
+}
+
+export function saveTodoState(state: TodoAppState, storageKey = TODO_STORAGE_KEY): void {
   if (typeof window === "undefined") {
     return;
   }
@@ -153,5 +214,5 @@ export function saveTodoState(state: TodoAppState): void {
     activity: state.activity,
   };
 
-  window.localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(payload));
+  window.localStorage.setItem(storageKey, JSON.stringify(payload));
 }
