@@ -363,7 +363,7 @@ export default function App() {
               type="text"
               value={usernameInput}
               onChange={(event) => setUsernameInput(event.target.value)}
-              placeholder="e.g. juan"
+              placeholder="e.g. john doe"
               className="h-12 w-full rounded-xl border border-blue-100 bg-white px-4 text-base outline-none ring-blue-400 transition focus:ring-2"
             />
             <button
